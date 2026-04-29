@@ -797,14 +797,21 @@ async function loadData() {
 }
 
 // ── PARSE FIELDS FROM SHAREPOINT ──
-// SharePoint Multi-line text fields come back as plain strings.
-// Some fields (fields_of_study, partnership_program, etc.) are stored
-// as comma- or newline-separated strings and need splitting into arrays.
+// SharePoint fields come back as JSON strings like ["Arts","Business"]
+// or plain comma-separated strings. Handle both.
 function parseList(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value;
-  // Split on comma or newline, trim whitespace, remove empties
-  return value.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  const str = String(value).trim();
+  // Try parsing as JSON array first
+  if (str.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) return parsed.map(s => String(s).trim()).filter(Boolean);
+    } catch(e) {}
+  }
+  // Fall back to comma/newline splitting
+  return str.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
 }
 
 // ── POPULATE FILTER DROPDOWNS ──
