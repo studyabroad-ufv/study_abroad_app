@@ -458,6 +458,8 @@ body {
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .card-footer-badge {
@@ -742,25 +744,67 @@ body {
 let DATA = { institutions: [] };
 let filteredData = [];
 
+// ── CLEAN SHAREPOINT HTML ──
+// Some SharePoint rich text fields return raw HTML — strip tags and decode entities
+function cleanHTML(value) {
+  if (!value) return null;
+  if (typeof value !== 'string') return value;
+  // Strip HTML tags
+  const stripped = value.replace(/<[^>]*>/g, '').trim();
+  // Decode HTML entities
+  const decoded = stripped
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&#58;/g, ':')
+    .replace(/&#160;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+  return decoded || null;
+}
+
+// Clean all fields in an institution object
+function cleanInstitution(inst) {
+  const cleaned = {};
+  for (const key in inst) {
+    cleaned[key] = cleanHTML(inst[key]);
+  }
+  return cleaned;
+}
+
 // ── LOAD DATA ──
 async function loadData() {
   try {
     const resp = await fetch('data.json');
     DATA = await resp.json();
   } catch (e) {
-    console.warn('Could not load data.json, using embedded data.');
+    console.warn('Could not load data.json, using empty data.');
   }
 
   if (DATA.last_updated) {
     const d = new Date(DATA.last_updated);
-    document.getElementById('last-updated').textContent = 'Updated ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    document.getElementById('last-updated').textContent =
+      'Updated ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
+
+  // Clean HTML from all SharePoint rich text fields
+  DATA.institutions = DATA.institutions.map(cleanInstitution);
 
   document.getElementById('total-count').textContent = DATA.institutions.length;
   document.getElementById('count-badge').textContent = DATA.institutions.length + ' institutions';
 
   populateFilterOptions();
   applyFilters();
+}
+
+// ── PARSE FIELDS FROM SHAREPOINT ──
+// SharePoint Multi-line text fields come back as plain strings.
+// Some fields (fields_of_study, partnership_program, etc.) are stored
+// as comma- or newline-separated strings and need splitting into arrays.
+function parseList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  // Split on comma or newline, trim whitespace, remove empties
+  return value.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
 }
 
 // ── POPULATE FILTER DROPDOWNS ──
@@ -770,46 +814,40 @@ function populateFilterOptions() {
 
   DATA.institutions.forEach(inst => {
     if (inst.country) countries.add(inst.country);
-    if (inst.fields_of_study && Array.isArray(inst.fields_of_study)) {
-      inst.fields_of_study.forEach(f => fields.add(f));
-    }
+    parseList(inst.fields_of_study).forEach(f => fields.add(f));
   });
 
   const countrySelect = document.getElementById('filter-country');
   [...countries].sort().forEach(c => {
     const opt = document.createElement('option');
-    opt.value = c;
-    opt.textContent = c;
+    opt.value = c; opt.textContent = c;
     countrySelect.appendChild(opt);
   });
 
   const fieldSelect = document.getElementById('filter-field');
   [...fields].sort().forEach(f => {
     const opt = document.createElement('option');
-    opt.value = f;
-    opt.textContent = f;
+    opt.value = f; opt.textContent = f;
     fieldSelect.appendChild(opt);
   });
 }
 
 // ── FILTERING ──
 function applyFilters() {
-  const search = document.getElementById('search').value.toLowerCase().trim();
-  const country = document.getElementById('filter-country').value;
-  const field = document.getElementById('filter-field').value;
-  const housing = document.getElementById('filter-housing').value;
-  const incentives = document.getElementById('filter-incentives').value;
+  const search    = document.getElementById('search').value.toLowerCase().trim();
+  const country   = document.getElementById('filter-country').value;
+  const field     = document.getElementById('filter-field').value;
+  const housing   = document.getElementById('filter-housing').value;
+  const incentives= document.getElementById('filter-incentives').value;
   const shortterm = document.getElementById('filter-shortterm').value;
-  const english = document.getElementById('filter-english').value;
+  const english   = document.getElementById('filter-english').value;
 
   filteredData = DATA.institutions.filter(inst => {
-    // Search
     if (search) {
       const haystack = [
         inst.institution_name, inst.institution_key, inst.country, inst.address,
-        ...(inst.fields_of_study || []),
-        inst.incentive_details,
-        inst.english_language_requirement
+        ...parseList(inst.fields_of_study),
+        inst.incentive_details, inst.english_language_requirement
       ].filter(Boolean).join(' ').toLowerCase();
       if (!haystack.includes(search)) return false;
     }
@@ -817,8 +855,7 @@ function applyFilters() {
     if (country && inst.country !== country) return false;
 
     if (field) {
-      const fos = inst.fields_of_study || [];
-      if (!fos.includes(field)) return false;
+      if (!parseList(inst.fields_of_study).includes(field)) return false;
     }
 
     if (housing) {
@@ -841,22 +878,21 @@ function applyFilters() {
 
 // ── RENDER ACTIVE FILTER TAGS ──
 function renderActiveFilters() {
-  const container = document.getElementById('active-filters');
-  const filters = [];
-
-  const country = document.getElementById('filter-country');
-  const field = document.getElementById('filter-field');
-  const housing = document.getElementById('filter-housing');
+  const container  = document.getElementById('active-filters');
+  const filters    = [];
+  const country    = document.getElementById('filter-country');
+  const field      = document.getElementById('filter-field');
+  const housing    = document.getElementById('filter-housing');
   const incentives = document.getElementById('filter-incentives');
-  const shortterm = document.getElementById('filter-shortterm');
-  const english = document.getElementById('filter-english');
+  const shortterm  = document.getElementById('filter-shortterm');
+  const english    = document.getElementById('filter-english');
 
-  if (country.value) filters.push({ label: 'Country: ' + country.value, clear: () => { country.value = ''; applyFilters(); }});
-  if (field.value) filters.push({ label: 'Field: ' + field.value, clear: () => { field.value = ''; applyFilters(); }});
-  if (housing.value) filters.push({ label: 'Housing: ' + housing.selectedOptions[0].text, clear: () => { housing.value = ''; applyFilters(); }});
-  if (incentives.value) filters.push({ label: 'Incentives: ' + incentives.selectedOptions[0].text, clear: () => { incentives.value = ''; applyFilters(); }});
-  if (shortterm.value) filters.push({ label: 'Short-term: ' + shortterm.selectedOptions[0].text, clear: () => { shortterm.value = ''; applyFilters(); }});
-  if (english.value) filters.push({ label: 'English: ' + english.selectedOptions[0].text, clear: () => { english.value = ''; applyFilters(); }});
+  if (country.value)    filters.push({ label: 'Country: '    + country.value,                        clear: () => { country.value    = ''; applyFilters(); }});
+  if (field.value)      filters.push({ label: 'Field: '      + field.value,                          clear: () => { field.value      = ''; applyFilters(); }});
+  if (housing.value)    filters.push({ label: 'Housing: '    + housing.selectedOptions[0].text,      clear: () => { housing.value    = ''; applyFilters(); }});
+  if (incentives.value) filters.push({ label: 'Incentives: ' + incentives.selectedOptions[0].text,   clear: () => { incentives.value = ''; applyFilters(); }});
+  if (shortterm.value)  filters.push({ label: 'Short-term: ' + shortterm.selectedOptions[0].text,    clear: () => { shortterm.value  = ''; applyFilters(); }});
+  if (english.value)    filters.push({ label: 'English: '    + english.selectedOptions[0].text,      clear: () => { english.value    = ''; applyFilters(); }});
 
   container.innerHTML = '';
   if (filters.length === 0) return;
@@ -896,8 +932,9 @@ function renderCards() {
   }
 
   grid.innerHTML = filteredData.map((inst, i) => {
-    const fields = (inst.fields_of_study || []).slice(0, 3);
-    const moreFields = (inst.fields_of_study || []).length - 3;
+    const fields     = parseList(inst.fields_of_study).slice(0, 3);
+    const moreFields = parseList(inst.fields_of_study).length - 3;
+
     const housingBadge = (inst.housing_options || '').toLowerCase().includes('guaranteed')
       ? '<span class="card-footer-badge badge-green">Housing Guaranteed</span>'
       : inst.housing_options
@@ -983,17 +1020,20 @@ function buildModalContent(inst) {
   // General Info
   sections.push(modalSection('General Information', [
     field('Address', inst.address),
-    field('Partnership Program', arr(inst.partnership_program)),
-    field('Nomination Method', arr(inst.nomination_method)),
+    field('Partnership Program', arrStr(inst.partnership_program)),
+    field('Nomination Method', arrStr(inst.nomination_method)),
     field('Study Abroad Website', link(inst.study_abroad_website)),
+    field('Social Media', link(inst.social_media)),
     field('Fact Sheet', link(inst.fact_sheet_link)),
   ]));
 
   // Academics
   sections.push(modalSection('Academics', [
-    field('Fields of Study', arr(inst.fields_of_study), true),
+    field('Fields of Study', arrStr(inst.fields_of_study), true),
     field('Minimum GPA (out of 4.33)', inst.minimum_gpa),
+    field('GPA Requirement Notes', inst.gpa_required),
     field('Minimum Credits Required', inst.minimum_credits),
+    field('Min Credits Requirement Notes', inst.min_credits_required),
     field('Credits per Semester', rangeStr(inst.min_credits_per_semester, inst.max_credits_per_semester)),
     field('English Main Instruction', inst.english_main_instruction),
     field('English Language Requirement', inst.english_language_requirement, true),
@@ -1004,26 +1044,30 @@ function buildModalContent(inst) {
 
   // Dates & Deadlines
   sections.push(modalSection('Dates & Deadlines', [
-    field('Fall Nomination Deadline', formatDate(inst.fall_nomination_deadline)),
+    field('Fall Nomination Deadline', inst.fall_nomination_deadline),
+    field('Fall Application Deadline', inst.fall_application_deadline),
     field('Fall Semester Dates', inst.fall_semester_dates),
-    field('Winter Nomination Deadline', formatDate(inst.winter_nomination_deadline)),
-    field('Winter Application Deadline', formatDate(inst.winter_application_deadline)),
+    field('Winter Nomination Deadline', inst.winter_nomination_deadline),
+    field('Winter Application Deadline', inst.winter_application_deadline),
     field('Winter Semester Dates', inst.winter_semester_dates),
   ]));
 
   // Short-term Programs
   if (inst.offers_short_term === 'Yes') {
     sections.push(modalSection('Short-term Programs', [
-      field('Available Months', arr(inst.short_term_months)),
+      field('Available Months', arrStr(inst.short_term_months)),
       field('Program Link', link(inst.short_term_link)),
       field('Affects Balance', inst.short_term_affects_balance),
+      field('Balance Impact Ratio', inst.balance_impact_ratio),
     ]));
   }
 
   // Housing & Living
   sections.push(modalSection('Housing & Living Costs', [
-    field('Housing', inst.housing_options),
+    field('Housing Options', inst.housing_options),
     field('Housing Website', link(inst.housing_website)),
+    field('Housing Support Resources', inst.housing_support_required),
+    field('Housing Support Details', link(inst.housing_support_documents)),
     field('Cost of Living (per semester)', inst.cost_of_living, true),
     field('Insurance Mandatory', inst.insurance_mandatory),
     field('Insurance Cost (CAD)', inst.insurance_cost_cad),
@@ -1037,12 +1081,17 @@ function buildModalContent(inst) {
     ]));
   }
 
+  // Application
+  sections.push(modalSection('Application', [
+    field('Required Documents', arrStr(inst.application_documents), true),
+  ]));
+
   // Support
   sections.push(modalSection('Support Services', [
-    field('Services Available', arr(inst.support_services), true),
-    field('Accommodations', inst.accommodations),
+    field('Services Available', arrStr(inst.support_services), true),
+    field('Accommodations for Disabilities', inst.accommodations),
     field('Documentation Required', inst.documentation_required, true),
-    field('Application Documents', arr(inst.application_documents), true),
+    field('Required Documents List', inst.required_documents, true),
   ]));
 
   // Contacts
@@ -1050,11 +1099,19 @@ function buildModalContent(inst) {
     field('Head of International Office', inst.head_intl_office_name),
     field('Head Email', emailLink(inst.head_intl_office_email)),
     field('Inbound Coordinator', inst.inbound_coordinator),
+    field('Inbound Coordinator Email', emailLink(inst.inbound_coordinator_email)),
     field('Outbound Coordinator', inst.outbound_coordinator),
     field('Outbound Email', emailLink(inst.outbound_coordinator_email)),
     field('Partnership Contact', inst.partnership_contact_name),
     field('Partnership Email', emailLink(inst.partnership_contact_email)),
   ]));
+
+  // Promotional
+  if (inst.promotional_materials) {
+    sections.push(modalSection('Promotional Materials', [
+      field('Link', link(inst.promotional_materials), true),
+    ]));
+  }
 
   return sections.join('');
 }
@@ -1071,9 +1128,13 @@ function field(label, value, full) {
   return `<div class="modal-field${full ? ' full' : ''}"><div class="modal-field-label">${label}</div><div class="modal-field-value">${value}</div></div>`;
 }
 
-function arr(a) {
-  if (!a || !Array.isArray(a) || a.length === 0) return null;
-  return a.join(', ');
+// arrStr handles both array values (from old Notion data) and
+// comma/newline-separated strings (from SharePoint plain text fields)
+function arrStr(a) {
+  if (!a) return null;
+  const parsed = parseList(a);
+  if (parsed.length === 0) return null;
+  return parsed.join(', ');
 }
 
 function link(url) {
@@ -1085,14 +1146,6 @@ function link(url) {
 function emailLink(email) {
   if (!email) return null;
   return `<a href="mailto:${email}">${email}</a>`;
-}
-
-function formatDate(d) {
-  if (!d) return null;
-  try {
-    const date = new Date(d + 'T00:00:00');
-    return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  } catch { return d; }
 }
 
 function rangeStr(min, max) {
@@ -1136,7 +1189,7 @@ function setView(mode, btn) {
 // ── TOGGLE FILTERS ──
 function toggleFilters() {
   const panel = document.getElementById('filters-panel');
-  const btn = document.getElementById('toggle-filters');
+  const btn   = document.getElementById('toggle-filters');
   panel.classList.toggle('open');
   btn.classList.toggle('active');
 }
