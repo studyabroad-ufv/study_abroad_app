@@ -844,18 +844,17 @@ function applyFilters() {
     if (search) {
       const haystack = [
         inst.institution_name, inst.institution_key, inst.country, inst.address,
-        ...(inst.fields_of_study || []),
+        ...parseList(inst.fields_of_study),
         inst.incentive_details,
         inst.english_language_requirement
       ].filter(Boolean).join(' ').toLowerCase();
       if (!haystack.includes(search)) return false;
     }
 
-    if (country && inst.country !== country) return false;
+    if (country && (inst.country || '').trim() !== country.trim()) return false;
 
     if (field) {
-      const fos = inst.fields_of_study || [];
-      if (!fos.includes(field)) return false;
+      if (!parseList(inst.fields_of_study).includes(field)) return false;
     }
 
     if (housing) {
@@ -933,8 +932,9 @@ function renderCards() {
   }
 
   grid.innerHTML = filteredData.map((inst, i) => {
-    const fields = (inst.fields_of_study || []).slice(0, 3);
-    const moreFields = (inst.fields_of_study || []).length - 3;
+    const allFields = parseList(inst.fields_of_study);
+    const fields = allFields.slice(0, 3);
+    const moreFields = allFields.length - 3;
     const housingBadge = (inst.housing_options || '').toLowerCase().includes('guaranteed')
       ? '<span class="card-footer-badge badge-green">Housing Guaranteed</span>'
       : inst.housing_options
